@@ -3,9 +3,10 @@ Tweet-Archive
 A Python script to archive a user's tweets (including responses,
 retweets, tweets responded to, etc.).
 
-The Twitter API is used and tweets are stored in Twitter's XML format. I
-intend to add functionality to transform the archived tweets into formats
-suitable for long-term archiving.
+The Twitter API is used and tweets are stored in Twitter's XML format.
+So far all it does is store them; I intend to add functionality to
+transform the archived tweets into formats suitable for long-term
+archiving.
 
 Dependencies: these Python modules are required:
 
