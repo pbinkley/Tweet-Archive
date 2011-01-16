@@ -19,7 +19,8 @@ for propLine in propFile:
     value= propDef[found:].lstrip(":= ").rstrip()
     propDict[name]= value
 propFile.close()
-print propDict
+
+
 # all this datetime stuff is from the Python docs:
 #     http://docs.python.org/library/datetime.html#tzinfo-objects
 
