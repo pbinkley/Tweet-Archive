@@ -102,6 +102,8 @@ secrets = getprops("secrets.properties")
 # load last_ids
 # collect dict containing last id collected from each list
 last_ids = getprops("ids.properties")
+# collect ids of referenced tweets
+references = []
 
 # Set up your Consumer and Token and Client
 consumer = oauth.Consumer(secrets['CONSUMER_KEY'], secrets['CONSUMER_SECRET'])
@@ -175,14 +177,19 @@ def fetchlist(listname):
 			timestamp_from = root.xpath("/statuses/status[last()]/created_at")[0].text
 			
 			print "ids:" + str(statuscount) + " from " + id_from + " to " + id_to
+
+			# add newly fetched statuses to our XML
 			for status in root.xpath("/statuses/status"):
 				statuses.append(status)
+				if status.find("in_reply_to_status_id").text:
+					references.append(status.find("in_reply_to_status_id").text)
+
 			page += 1
 		else:
-			print "empty response"
+			print "reached empty response"
 			finished = True
 		if statuscount < reqcount:
-			print "last response"
+			print "reached last response"
 			finished = True
 			
 	# add fetch, to and from attributes to root
@@ -202,8 +209,6 @@ def fetchlist(listname):
 		td_to_str = ""
 	statuses.set("timestamp_from", td_from_str)
 	statuses.set("timestamp_to", td_to_str)
-			
-
 
 	# output the xml
 	with open ("output/" + listname + "_" + tsstr_filename + ".xml", "w") as f:
@@ -225,8 +230,28 @@ else:
 # now actually do the fetching
 
 fetchlist("user_timeline")
-fetchlist("mentions")
-fetchlist("retweets_of_me")
+#fetchlist("mentions")
+#fetchlist("retweets_of_me")
+
+# fetched referenced tweets
+statuses = etree.Element("statuses", type="array")
+print "Handling referenced tweets"
+for id in references:
+	url = "http://api.twitter.com/statuses/show/" + id + ".xml"
+	resp, content = client.request(url, "GET")
+	# parse the XML
+	
+	contentasfile = StringIO.StringIO(content)
+	root = etree.parse(contentasfile)
+
+	for status in root.xpath("/status"):
+		statuses.append(status)
+
+	# output the xml
+	with open ("output/references_" + tsstr_filename + ".xml", "w") as f:
+		f.write(etree.tostring(statuses, xml_declaration=True, encoding='utf-8', pretty_print=True))
+	f.closed
+
 
 # handle list of last ids
 with open ("ids_" + tsstr_filename + ".properties", "w") as f:
@@ -236,7 +261,19 @@ with open ("ids_" + tsstr_filename + ".properties", "w") as f:
 f.closed
 
 # now rename old file using its timestamp
-os.rename("ids.properties", "ids_" + last_ids['timestamp'] + ".properties")
+if 'timestamp' in last_ids:
+	lastts = last_ids['timestamp']
+else:
+	lastts = "first"
+try:
+	os.rename("ids.properties", "ids_" + lastts + ".properties")
+except OSError as exc: # Python >2.5
+	# if old ids properties file doesn't exist, that's ok: we'll just create a new one
+	if exc.errno == errno.ENOENT:
+		pass
+	else: 
+		raise
 
 # and rename new file to be the default
 os.rename("ids_" + tsstr_filename + ".properties", "ids.properties")
+
