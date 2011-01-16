@@ -8,10 +8,16 @@ So far all it does is store them; I intend to add functionality to
 transform the archived tweets into formats suitable for long-term
 archiving.
 
+Currently it archives these streams:
+
+* user_timeline (your tweets) * mentions * retweets_of_me
+
+For any tweet that is a response to another tweet (from any source), it
+archives the original in a file called "references".
+
 Dependencies: these Python modules are required:
 
-* oauth2 
-* lxml
+* oauth2 * lxml
 
 Installation:
 
@@ -32,6 +38,6 @@ a directory "output" and download XML files into it. The XML files are
 timestamped e.g. "user_timeline_2011-01-16-112031.xml". A new properties
 file ids.properties is also created containing the most recent tweet's
 id in each stream. This is used in the next run to create "since_id"
-parameters, to allow incremental updating. 
+parameters, to allow incremental updating.
 
 Note: the script fetch-tweepy.py was a false start using Tweepy

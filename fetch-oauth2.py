@@ -230,8 +230,8 @@ else:
 # now actually do the fetching
 
 fetchlist("user_timeline")
-#fetchlist("mentions")
-#fetchlist("retweets_of_me")
+fetchlist("mentions")
+fetchlist("retweets_of_me")
 
 # fetched referenced tweets
 statuses = etree.Element("statuses", type="array")
