@@ -4,20 +4,23 @@ A Python script to archive a user's tweets (including responses,
 retweets, tweets responded to, etc.).
 
 The Twitter API is used and tweets are stored in Twitter's XML format.
-So far all it does is store them; I intend to add functionality to
-transform the archived tweets into formats suitable for long-term
-archiving.
+A separate script generates an html version. Ultimately it will
+produce pdfs as well, and divide the tweets into monthly archives.
 
 Currently it archives these streams:
 
-* user_timeline (your tweets) * mentions * retweets_of_me
+* user_timeline (your tweets) 
+* mentions 
+* direct_messages 
+* direct_messages_sent
 
 For any tweet that is a response to another tweet (from any source), it
 archives the original in a file called "references".
 
 Dependencies: these Python modules are required:
 
-* oauth2 * lxml
+* oauth2 
+* lxml
 
 Installation:
 
@@ -34,10 +37,22 @@ secrets.properties").
 Running:
 
 Now run the script fetch-oauth2.py from the command line. It will create
-a directory "output" and download XML files into it. The XML files are
-timestamped e.g. "user_timeline_2011-01-16-112031.xml". A new properties
-file ids.properties is also created containing the most recent tweet's
-id in each stream. This is used in the next run to create "since_id"
-parameters, to allow incremental updating.
+a directory "output" and download an XML file into it. The XML file is 
+placed in a timestamped directory, e.g. "output/2011-01-16-112031/master.xml". 
+A new properties file ids.properties is also created containing the most recent tweet's
+id in each stream. This is used in the next run to create 
+"since_id" parameters, to allow incremental updating. (To do a fresh full fetch, 
+simply delete ids.properties).
 
-Note: the script fetch-tweepy.py was a false start using Tweepy
+A separate script, static-archive.py, can then be run to create the html.
+It creates a directory "static-archive" and converts the most recent
+master.xml into an html file, using statuses2html.xsl.
+
+To do:
+
+*	divide statuses into monthly archives
+*	incorporate generating of html and pdfs into main script
+*	create workflow using since_id to allow incremental downloads, with appropriate
+	updating of archive
+*	look up shortened urls, store the real url
+*	maybe fetch referenced pictures? capture snapshot of referenced pages?

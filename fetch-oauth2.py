@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
-import sys, os, errno
+import sys, os, errno, copy, string
 import StringIO
 import oauth2 as oauth
 from lxml import etree
 
 # constants
-reqcount = 100
+reqcount = 200
 
 # load properties from files
 # from http://www.linuxtopia.org/online_books/programming_books/python_programming/python_ch34s04.html
@@ -93,6 +93,13 @@ class LocalTimezone(tzinfo):
 
 Local = LocalTimezone()
 
+def twitter_time_to_str(t):
+	# if not a valid twitter timestamp, return empty string
+	try:
+		return timestamp.strptime(t.replace("+0000 ", ""), '%a %b %d %H:%M:%S %Y').strftime("%Y-%m-%d %H:%M:%S+0000")
+	except:
+		return ""
+
 timestamp = datetime.now().replace(tzinfo=Local)
 tsstr_filename = timestamp.strftime("%Y-%m-%d-%H%M%S")
 tsstr = timestamp.strftime("%Y-%m-%d %H:%M:%S%z")
@@ -102,8 +109,13 @@ secrets = getprops("secrets.properties")
 # load last_ids
 # collect dict containing last id collected from each list
 last_ids = getprops("ids.properties")
+new_last_ids = copy.deepcopy(last_ids)
+
 # collect ids of referenced tweets
 references = []
+
+# master xml file for output
+master = etree.Element("tweetarchive", timestamp_fetch=tsstr)
 
 # Set up your Consumer and Token and Client
 consumer = oauth.Consumer(secrets['CONSUMER_KEY'], secrets['CONSUMER_SECRET'])
@@ -134,11 +146,12 @@ req.sign_request(signature_method, consumer, token)
 
 # function to fetch a given list, iterating through pages until all the tweets have
 # been received
-def fetchlist(listname):
+def fetchlist(listpath):
+	listname = string.replace(listpath, '/', '_')
 	print
-	print "Fetching " + listname
+	print "Fetching " + listpath
 	# start with an empty list
-	statuses = etree.Element("statuses", type="array")
+	statuses = etree.Element("statuses", type="array", name=listname)
 	page = 1
 	finished = False
 	id_to = "none"
@@ -148,72 +161,88 @@ def fetchlist(listname):
 	
 	while finished == False:
 		print "Page: " + str(page)
-	#	url = "http://api.twitter.com/statuses/" + listname + ".xml?since_id=16557754105729024&page=" + str(page)
-		url = "http://api.twitter.com/statuses/" + listname + ".xml?count=" + str(reqcount) + "&page=" + str(page)
+#		url = "http://api.twitter.com/" + listpath + ".xml?include_rts=true&include_entities=true&count=" + str(reqcount) + "&page=" + str(page)
+		url = "http://api.twitter.com/" + listpath + ".xml?count=" + str(reqcount) + "&page=" + str(page)
+		
+#		if id_from != 'none':
+#			url += "&max_id=" + str(id_from)
 
 		if listname in last_ids:
 			url += "&since_id=" + last_ids[listname]
-			print "last id for " + listname + ": " + last_ids[listname]
+			print "last id for " + listpath + ": " + last_ids[listname]
 
 		print url
 		
 		resp, content = client.request(url, "GET")
-
+		
 		# resp is of type 'httplib2.Response'
+		respdict = dict(resp.items())
+		#print "Rate limit remaining: " + respdict['x-ratelimit-remaining'] + " of " + respdict['x-ratelimit-limit']
+		#print "    (reset at " + time.strftime("%H:%M:%S %Z, %a, %d %b %Y", time.localtime(float(respdict['x-ratelimit-reset']))) + ")"
 
-		print "Request: " + listname + " / Response: " + str(resp.status) + " " + resp.reason 
+		print "Request: " + listpath + " / Response: " + str(resp.status) + " " + resp.reason 
 		# parse the XML
-	
-		contentasfile = StringIO.StringIO(content)
-		root = etree.parse(contentasfile)
-
-		statuscount = int(root.xpath("count(/statuses/status)"))
-		if statuscount > 0:
-			if page == 1:
-				id_to = root.xpath("/statuses/status[1]/id")[0].text
-				timestamp_to = root.xpath("/statuses/status[1]/created_at")[0].text
-				last_ids.update({listname: id_to})
-			id_from = root.xpath("/statuses/status[last()]/id")[0].text
-			timestamp_from = root.xpath("/statuses/status[last()]/created_at")[0].text
+		if resp.status == 200:
+			contentasfile = StringIO.StringIO(content)
+			root = etree.parse(contentasfile)
 			
-			print "ids:" + str(statuscount) + " from " + id_from + " to " + id_to
+			# determine xpath needed to get individual tweets
+			if listname.find('statuses') != -1:
+				xp = "/statuses/status"
+			elif listname.find('direct_messages') != -1:
+				xp = "/direct-messages/direct_message"
+			statuscount = int(root.xpath("count(" + xp + ")"))
 
-			# add newly fetched statuses to our XML
-			for status in root.xpath("/statuses/status"):
-				statuses.append(status)
-				if status.find("in_reply_to_status_id").text:
-					references.append(status.find("in_reply_to_status_id").text)
+			if statuscount > 0:
+				if page == 1:
+					id_to = root.xpath(xp + "[1]/id")[0].text
+					timestamp_to = root.xpath(xp + "[1]/created_at")[0].text
+					new_last_ids.update({listname: id_to})
+				id_from = root.xpath(xp + "[last()]/id")[0].text
+				timestamp_from = root.xpath(xp + "[last()]/created_at")[0].text
+				
+				print "ids:" + str(statuscount) + " from " + id_from + " to " + id_to
 
-			page += 1
+				# add newly fetched statuses to our XML
+				for status in root.xpath(xp):
+					status.set("timestamp", twitter_time_to_str(root.xpath(xp + "[1]/created_at")[0].text))
+					statuses.append(status)
+					if status.xpath("in_reply_to_status_id"):
+						ref = status.xpath("in_reply_to_status_id")[0].text
+						if ref:
+							if not ref in references:
+								references.append(ref)
+#								print "Added " + ref
+#							else:
+#								print "Dupe " + ref
+
+				page += 1
+			else:
+				print "reached empty response"
+				finished = True
+			
+			# add to and from attributes to root
+			statuses.set("id_to", str(id_to))
+			statuses.set("id_from", str(id_from))
+
+			# twitter timestamps are in this format: Sat Oct 16 01:38:40 +0000 2010
+			# python can't parse the timezone, so we remove it before parsing
+			if timestamp_from != "none":
+				td_from_str = twitter_time_to_str(timestamp_from)
+			else:
+				td_from_str = ""
+			if timestamp_to != "none":
+				td_to_str = twitter_time_to_str(timestamp_to)
+			else:
+				td_to_str = ""
+			statuses.set("timestamp_from", td_from_str)
+			statuses.set("timestamp_to", td_to_str)
+
+			# output the xml
+			master.append(statuses)
 		else:
-			print "reached empty response"
-			finished = True
-		if statuscount < reqcount:
-			print "reached last response"
-			finished = True
-			
-	# add fetch, to and from attributes to root
-	statuses.set("timestamp_fetch", tsstr)
-	statuses.set("id_to", str(id_to))
-	statuses.set("id_from", str(id_from))
-
-	# twitter timestamps are in this format: Sat Oct 16 01:38:40 +0000 2010
-	# python can't parse the timezone, so we remove it before parsing
-	if timestamp_from != "none":
-		td_from_str = timestamp.strptime(timestamp_from.replace("+0000 ", ""), '%a %b %d %H:%M:%S %Y').strftime("%Y-%m-%d %H:%M:%S+0000")
-	else:
-		td_from_str = ""
-	if timestamp_to != "none":
-		td_to_str = timestamp.strptime(timestamp_to.replace("+0000 ", ""), '%a %b %d %H:%M:%S %Y').strftime("%Y-%m-%d %H:%M:%S+0000")
-	else:
-		td_to_str = ""
-	statuses.set("timestamp_from", td_from_str)
-	statuses.set("timestamp_to", td_to_str)
-
-	# output the xml
-	with open ("output/" + listname + "_" + tsstr_filename + ".xml", "w") as f:
-		f.write(etree.tostring(statuses, xml_declaration=True, encoding='utf-8', pretty_print=True))
-	f.closed
+			finished=True
+			print "Download of " + listpath + " failed."
 
 # create output directory if necessary
 try:	
@@ -226,16 +255,29 @@ except OSError as exc: # Python >2.5
 else:
 	print "created output directory"
 
+# create run directory
+try:	
+	os.mkdir("output/" + tsstr_filename)
+except OSError as exc: # Python >2.5
+	if exc.errno == errno.EEXIST:
+		print "output directory exists"
+	else: 
+		raise
+else:
+	print "created output directory"
 
 # now actually do the fetching
 
-fetchlist("user_timeline")
-fetchlist("mentions")
-fetchlist("retweets_of_me")
+fetchlist("statuses/user_timeline")
+fetchlist("statuses/mentions")
+#fetchlist("statuses/retweets_of_me")
+fetchlist("direct_messages")
+fetchlist("direct_messages/sent")
 
-# fetched referenced tweets
-statuses = etree.Element("statuses", type="array")
-print "Handling referenced tweets"
+# fetch referenced tweets
+statuses = etree.Element("statuses", type="array", name="references")
+print "Handling " + str(len(references)) + " referenced tweets"
+
 for id in references:
 	url = "http://api.twitter.com/statuses/show/" + id + ".xml"
 	resp, content = client.request(url, "GET")
@@ -245,19 +287,23 @@ for id in references:
 	root = etree.parse(contentasfile)
 
 	for status in root.xpath("/status"):
+		status.set("timestamp", twitter_time_to_str(root.xpath("created_at")[0].text))
 		statuses.append(status)
 
 	# output the xml
-	with open ("output/references_" + tsstr_filename + ".xml", "w") as f:
-		f.write(etree.tostring(statuses, xml_declaration=True, encoding='utf-8', pretty_print=True))
-	f.closed
+	master.append(statuses)
+	
+# output the master xml
+with open ("output/" + tsstr_filename + "/master.xml", "w") as f:
+	f.write(etree.tostring(master, xml_declaration=True, encoding='utf-8', pretty_print=True))
+f.closed
 
 
 # handle list of last ids
 with open ("ids_" + tsstr_filename + ".properties", "w") as f:
 	f.write("timestamp = " + tsstr_filename + "\n")
-	for key in last_ids.keys():
-		f.write(key + " = " + last_ids.get(key) + "\n")
+	for key in new_last_ids.keys():
+		f.write(key + " = " + new_last_ids.get(key) + "\n")
 f.closed
 
 # now rename old file using its timestamp
