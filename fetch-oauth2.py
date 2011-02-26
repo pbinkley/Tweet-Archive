@@ -4,9 +4,16 @@ import sys, os, errno, copy, string
 import StringIO
 import oauth2 as oauth
 from lxml import etree
+from copy import deepcopy
 
 # constants
 reqcount = 200
+
+def ensure_dir(f):
+	d = os.path.dirname(f)
+	if not os.path.exists(d):
+		os.makedirs(d)
+
 
 # load properties from files
 # from http://www.linuxtopia.org/online_books/programming_books/python_programming/python_ch34s04.html
@@ -102,6 +109,7 @@ def twitter_time_to_str(t):
 
 timestamp = datetime.now().replace(tzinfo=Local)
 tsstr_filename = timestamp.strftime("%Y-%m-%d-%H%M%S")
+tsstr_monthpath = timestamp.strftime("%Y/%m")
 tsstr = timestamp.strftime("%Y-%m-%d %H:%M:%S%z")
 
 # load secrets	
@@ -113,6 +121,10 @@ new_last_ids = copy.deepcopy(last_ids)
 
 # collect ids of referenced tweets
 references = []
+
+# collect months represented in this download, in form "2011/02" 
+# (for use when creating output file paths)
+months = []
 
 # master xml file for output
 master = etree.Element("tweetarchive", timestamp_fetch=tsstr)
@@ -205,7 +217,11 @@ def fetchlist(listpath):
 
 				# add newly fetched statuses to our XML
 				for status in root.xpath(xp):
-					status.set("timestamp", twitter_time_to_str(root.xpath(xp + "[1]/created_at")[0].text))
+					# statusTimestamp format is 2011-02-16 18:48:01+0000
+					statusTimestamp = twitter_time_to_str(root.xpath(xp + "[1]/created_at")[0].text)
+					statusMonth = statusTimestamp[0:4] + "/" + statusTimestamp[5:7]
+					status.set("timestamp", statusTimestamp)
+					status.set("month", statusMonth)
 					statuses.append(status)
 					if status.xpath("in_reply_to_status_id"):
 						ref = status.xpath("in_reply_to_status_id")[0].text
@@ -215,7 +231,8 @@ def fetchlist(listpath):
 #								print "Added " + ref
 #							else:
 #								print "Dupe " + ref
-
+					if not statusMonth in months:
+						months.append(statusMonth)
 				page += 1
 			else:
 				print "reached empty response"
@@ -244,28 +261,6 @@ def fetchlist(listpath):
 			finished=True
 			print "Download of " + listpath + " failed."
 
-# create output directory if necessary
-try:	
-	os.mkdir("output")
-except OSError as exc: # Python >2.5
-	if exc.errno == errno.EEXIST:
-		print "output directory exists"
-	else: 
-		raise
-else:
-	print "created output directory"
-
-# create run directory
-try:	
-	os.mkdir("output/" + tsstr_filename)
-except OSError as exc: # Python >2.5
-	if exc.errno == errno.EEXIST:
-		print "output directory exists"
-	else: 
-		raise
-else:
-	print "created output directory"
-
 # now actually do the fetching
 
 fetchlist("statuses/user_timeline")
@@ -277,6 +272,9 @@ fetchlist("direct_messages/sent")
 # fetch referenced tweets
 statuses = etree.Element("statuses", type="array", name="references")
 print "Handling " + str(len(references)) + " referenced tweets"
+
+# hack to prevent references being done while I'm testing
+references = []
 
 for id in references:
 	url = "http://api.twitter.com/statuses/show/" + id + ".xml"
@@ -292,9 +290,33 @@ for id in references:
 
 	# output the xml
 	master.append(statuses)
+
+# For each month in current master, create a directory and a download file
+# containing the tweets from that month.
+
+for month in months:
+	print "    month: " + month
+	monthStatuses = etree.Element("tweetarchive", timestamp_fetch=tsstr)
+	for statusSet in master.xpath("statuses"):
+		setname = statusSet.get("name")
+		print "          set: " + setname
+		statuses = etree.Element("statuses", type="array")
+		statuses.set("name", setname)
+		for status in statusSet.xpath("*[@month = '" + month + "']"):
+			statuses.append(copy.deepcopy(status))
+		monthStatuses.append(statuses)
+	filename = "archive/xml/" + month + "/" + tsstr_filename + ".xml"
+	ensure_dir(filename)
+	with open (filename, "w") as f:
+		f.write(etree.tostring(monthStatuses, xml_declaration=True, encoding='utf-8', pretty_print=True))
+	f.closed
+
+
 	
 # output the master xml
-with open ("output/" + tsstr_filename + "/master.xml", "w") as f:
+filename = "archive/masters/" + tsstr_monthpath + "/" + tsstr_filename + ".xml"
+ensure_dir(filename)
+with open (filename, "w") as f:
 	f.write(etree.tostring(master, xml_declaration=True, encoding='utf-8', pretty_print=True))
 f.closed
 
