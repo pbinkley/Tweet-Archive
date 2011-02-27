@@ -273,9 +273,6 @@ fetchlist("direct_messages/sent")
 statuses = etree.Element("statuses", type="array", name="references")
 print "Handling " + str(len(references)) + " referenced tweets"
 
-# hack to prevent references being done while I'm testing
-references = []
-
 for id in references:
 	url = "http://api.twitter.com/statuses/show/" + id + ".xml"
 	resp, content = client.request(url, "GET")
