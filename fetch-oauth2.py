@@ -174,7 +174,7 @@ def fetchlist(listpath):
 	while finished == False:
 		print "Page: " + str(page)
 #		url = "http://api.twitter.com/" + listpath + ".xml?include_rts=true&include_entities=true&count=" + str(reqcount) + "&page=" + str(page)
-		url = "http://api.twitter.com/" + listpath + ".xml?count=" + str(reqcount) + "&page=" + str(page)
+		url = "http://api.twitter.com/1/" + listpath + ".xml?count=" + str(reqcount) + "&page=" + str(page)
 		
 #		if id_from != 'none':
 #			url += "&max_id=" + str(id_from)
